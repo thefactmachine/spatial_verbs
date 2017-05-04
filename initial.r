@@ -13,6 +13,7 @@ library(rgdal)
 library(rgeos)
 library(sf)
 library(geojsonio)
+library(Cairo)
 
 
 
@@ -155,25 +156,11 @@ sp_poly_df_greater_CBR_SA2 <- rbind(sp_poly_df_CBR_SA2, sp_poly_df_qb_SA2)
 if (length(dev.list()) > 0) {dev.off(dev.list()["RStudioGD"])}
 plot(sp_poly_df_greater_CBR_SA2)
 
-
-# ===========================================================
-# We are calculating centroids here.....just for 8 polygons
-# if byid was false ... then there would only be a single centroid for the entire shape
-
-sp_points_df_CBR_centroids <- sp::SpatialPointsDataFrame(
-                                    coords = rgeos::gCentroid(sp_poly_df_CBR_selected_SA3, byid = TRUE),  
-                                    data = sp_poly_df_CBR_selected_SA3@data, 
-                                    proj4string = sp_poly_df_CBR_selected_SA3@proj4string)
-
-# now check things by plotting....
-if (length(dev.list()) > 0) {dev.off(dev.list()["RStudioGD"])}
-plot(sp_poly_df_CBR_selected_SA3)
-plot(sp_points_df_CBR_centroids, pch = 16 , col = 'red', add = TRUE)
-
-# ===========================================================
+# ========================================================
+# CSV Fun ================================================
 # Read in ABS CSV data and process it....
+df_time_series_all <- read.csv(file="input_data/csv_data/2011Census_T01_AUST_SA2_long.csv", header=TRUE, sep=",")
 
-df_time_series_all <- read.csv(file="2011Census_T01_AUST_SA2_long.csv", header=TRUE, sep=",")
 # select and filter appropriate columns
 vct_columns <- c("region_id", "Total_persons_2001_Census_Persons", 
                  "Total_persons_2006_Census_Persons", "Total_persons_2011_Census_Persons")
@@ -185,11 +172,83 @@ names(df_time_series_all) <- c("id", "2001_p", "2006_p", "2011_p")
 # get a vector of canberra id's -- we want to join this data to SA2 level data
 vct_sa2_id_cbr <- sp_poly_df_greater_CBR_SA2@data$SA2_MAIN
 
-# filter all of australia for just canberra only...
+# filter all of australia for just greater canberra only...
 df_time_series_cbr <- df_time_series_all[df_time_series_all$id %in% vct_sa2_id_cbr,]
 
 # now calculate change between 2001 and 2011
 df_time_series_cbr$change_10 <- df_time_series_cbr$`2011_p` - df_time_series_cbr$`2001_p`
+
+# cast the id column to a character...so we can join with the shapefile...
+df_time_series_cbr$id <- as.character(df_time_series_cbr$id)
+
+# club back into the shapefile ----- THIS PART HERE IS WHERE THE DATA GET JOINED TO THE GEOMETRY
+sp_poly_df_greater_CBR_SA2@data <- sp_poly_df_greater_CBR_SA2@data %>% 
+  inner_join(df_time_series_cbr, by = c("SA2_MAIN" = "id"))
+
+# some clean up stuff here -------------------------------------------------
+
+# clean things up...
+sp_poly_df_greater_CBR_SA2@data$`2001_p` <- NULL
+sp_poly_df_greater_CBR_SA2@data$`2006_p` <- NULL
+sp_poly_df_greater_CBR_SA2@data$STATE_NAME <- NULL
+# this identifies "Oxley (ACT)" and converts it to "Oxley" 
+sp_poly_df_greater_CBR_SA2@data$SA2_NAME <- gsub("\\(ACT\\)", "", sp_poly_df_greater_CBR_SA2@data$SA2_NAME)
+
+sp_poly_df_greater_CBR_SA2@data[sp_poly_df_greater_CBR_SA2@data$SA2_NAME == 
+                                  "Queanbeyan West - Jerrabomberra", "SA2_NAME"] <- "Jerrabomberra"
+
+# ========================================================
+# Plot a simple bar chart ================================
+# Highest growing suburbs
+
+df_highest_growing <- sp_poly_df_greater_CBR_SA2@data %>% 
+                      select(SA2_NAME, change_10) %>%
+                      arrange(desc(change_10)) %>%
+                      slice(1:20) %>%
+                      rename(Suburb = SA2_NAME, Growth = change_10) 
+
+# need to fiddle with factors -- convert suburb into a factor.
+# ..its order is based on the value of growth.  Can put a minus sign
+# next to the second variable in order to flip around its sort order....
+df_highest_growing$Suburb <- reorder(df_highest_growing$Suburb, 
+                                     df_highest_growing$Growth)
+
+
+
+g <- ggplot(df_highest_growing, aes(x = Suburb, y = Growth))
+g <- g + geom_bar(width = 0.7, stat = "identity", fill = "#3da456")
+g <- g + coord_flip()
+g <- g + theme_light(13, base_family = "Calibri")
+g <- g + theme(panel.grid.minor.y = element_blank())
+g <- g + theme(panel.grid.major.y = element_blank())
+g <- g + theme(panel.grid.minor.x = element_blank())
+g <- g + theme(panel.grid.major.x = element_blank())
+g <- g + theme(axis.ticks.y = element_blank())
+g <- g + scale_y_continuous(label = scales::comma)
+g <- g + theme(panel.border = element_blank())
+g <- g + theme(panel.background = element_blank())
+g <- g + theme(axis.line = element_line(colour = "black"))
+g <- g + labs(y = "Absolute increase in number of people (2001 ~ 2011)")
+g <- g + labs(x = "SA2 Region (i.e suburb)")
+g 
+
+
+g
+cairo_pdf("growth_by_sa2.pdf", width = 11.69, height = 8.27)
+print(g)
+dev.off() 
+
+
+# ========================================================
+
+
+
+
+
+
+
+
+
 
 
 
@@ -199,11 +258,8 @@ df_time_series_cbr$change_10 <- df_time_series_cbr$`2011_p` - df_time_series_cbr
 
 
 
-
-
-# clean up a name
+# clean up a name --- dont really need this ......it is at SA3 level.......
 sp_poly_df_CBR_selected_SA3[sp_poly_df_CBR_selected_SA3@data$SA3_CODE == "80103", "SA3_NAME"] <- "Pialligo"
-
 
 
 
@@ -236,15 +292,8 @@ df_cbr_negative$quant <- 0
 df_cbr_quant <- rbind(df_cbr_positive, df_cbr_negative)
 df_cbr_quant$id <- as.character(df_cbr_quant$id)
 
-# club back into the shapefile ----- THIS PART HERE IS WHERE THE DATA GET JOINED TO THE GEOMETRY
-sp_poly_df_greater_CBR_SA2@data <- sp_poly_df_greater_CBR_SA2@data %>% 
-  inner_join(df_cbr_quant, by = c("SA2_MAIN" = "id"))
 
-# clean things up...
-sp_poly_df_greater_CBR_SA2@data$`2001_p` <- NULL
-sp_poly_df_greater_CBR_SA2@data$`2006_p` <- NULL
-sp_poly_df_greater_CBR_SA2@data$STATE_NAME <- NULL
-sp_poly_df_greater_CBR_SA2@data$SA2_NAME <- gsub("\\(ACT\\)", "", sp_poly_df_greater_CBR_SA2@data$SA2_NAME)
+
 
  
 # lets take out all places with zero population....108 polygons...
@@ -265,6 +314,24 @@ geojsonio::geojson_write(json_CRB_SA2, file = "CBR_SA2.geojson")
 
 
 
+
+
+# Centroids  Digression ====================================
+# ===========================================================
+# We are calculating centroids here.....just for 8 polygons
+# if byid was false ... then there would only be a single centroid for the entire shape
+
+sp_points_df_CBR_centroids <- sp::SpatialPointsDataFrame(
+  coords = rgeos::gCentroid(sp_poly_df_CBR_selected_SA3, byid = TRUE),  
+  data = sp_poly_df_CBR_selected_SA3@data, 
+  proj4string = sp_poly_df_CBR_selected_SA3@proj4string)
+
+# now check things by plotting....
+if (length(dev.list()) > 0) {dev.off(dev.list()["RStudioGD"])}
+plot(sp_poly_df_CBR_selected_SA3)
+plot(sp_points_df_CBR_centroids, pch = 16 , col = 'red', add = TRUE)
+
+# ===========================================================
 
 
 
