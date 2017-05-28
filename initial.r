@@ -169,6 +169,7 @@ df_time_series_all <- df_time_series_all[, names(df_time_series_all) %in% vct_co
 # rename
 names(df_time_series_all) <- c("id", "2001_p", "2006_p", "2011_p")
 
+
 # get a vector of canberra id's -- we want to join this data to SA2 level data
 vct_sa2_id_cbr <- sp_poly_df_greater_CBR_SA2@data$SA2_MAIN
 
@@ -185,12 +186,13 @@ df_time_series_cbr$id <- as.character(df_time_series_cbr$id)
 sp_poly_df_greater_CBR_SA2@data <- sp_poly_df_greater_CBR_SA2@data %>% 
   inner_join(df_time_series_cbr, by = c("SA2_MAIN" = "id"))
 
+
 # some clean up stuff here -------------------------------------------------
 
 # clean things up...
-sp_poly_df_greater_CBR_SA2@data$`2001_p` <- NULL
-sp_poly_df_greater_CBR_SA2@data$`2006_p` <- NULL
-sp_poly_df_greater_CBR_SA2@data$STATE_NAME <- NULL
+# sp_poly_df_greater_CBR_SA2@data$`2001_p` <- NULL
+# sp_poly_df_greater_CBR_SA2@data$`2006_p` <- NULL
+# sp_poly_df_greater_CBR_SA2@data$STATE_NAME <- NULL
 # this identifies "Oxley (ACT)" and converts it to "Oxley" 
 sp_poly_df_greater_CBR_SA2@data$SA2_NAME <- gsub("\\(ACT\\)", "", sp_poly_df_greater_CBR_SA2@data$SA2_NAME)
 
@@ -228,39 +230,36 @@ g <- g + scale_y_continuous(label = scales::comma)
 g <- g + theme(panel.border = element_blank())
 g <- g + theme(panel.background = element_blank())
 g <- g + theme(axis.line = element_line(colour = "black"))
-g <- g + labs(y = "Absolute increase in number of people (2001 ~ 2011)")
+g <- g + labs(y = "Absolute increase in number of people")
 g <- g + labs(x = "SA2 Region (i.e suburb)")
-g 
 
+g <- g + ggplot2::ggtitle("Greater Canberra - Growth in Population (2001 ~ 2011)")
 
+# display the plot...then save the sucker to
 g
 cairo_pdf("growth_by_sa2.pdf", width = 11.69, height = 8.27)
 print(g)
 dev.off() 
 
 
+
+
+df_highest_growing$Growth
+
+
+# ============================lk============================
+# ========================================================
 # ========================================================
 
+df <- sp_poly_df_greater_CBR_SA2@data 
 
+options(scipen=999)
 
-
-
-
-
-
-
-
-
-
-
-
-# ======= clean up stuff and get it ready for geolayers. 
-
-
-
-# clean up a name --- dont really need this ......it is at SA3 level.......
-sp_poly_df_CBR_selected_SA3[sp_poly_df_CBR_selected_SA3@data$SA3_CODE == "80103", "SA3_NAME"] <- "Pialligo"
-
+df <- df %>% arrange(desc(change_10)) %>% filter(change_10 > 0) %>% 
+      mutate(tot = sum(change_10)) %>% 
+      mutate(pc = (change_10 / tot) * 100) %>%
+      mutate(cum_pc = cumsum(pc)) %>% slice(1:20)
+df
 
 
 
